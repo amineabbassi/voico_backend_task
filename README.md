@@ -172,3 +172,42 @@ I use `response_format={"type": "json_object"}` to guarantee valid JSON back fro
 **Error handling:** The entire OpenAI call is wrapped in a try/except. If it fails for any reason (network error, invalid key, rate limit), the error is logged and the function continues — the call is still updated, just without `summary` and `label`.
 
 **Key decision:** I used `response_format={"type": "json_object"}` rather than asking the model to return JSON in plain text and hoping for the best. This eliminates the need to strip markdown code fences and makes parsing reliable.
+
+---
+
+## Files Changed Per Task
+
+### Task 1 — Call Notes
+| File | Change |
+|------|--------|
+| `backend/app/modules/calls/schema.py` | Added `notes: Optional[str]` to `Call` model; added `UpdateNotesPayload` schema; added `notes` to `CallResponse` |
+| `backend/app/database/alembic/versions/0002_add_notes_to_calls.py` | New migration — adds nullable `notes` column to `calls` table |
+| `backend/app/modules/calls/service.py` | Added `update_notes()` method |
+| `backend/app/modules/calls/router.py` | Added `PATCH /api/calls/{id}/notes` endpoint |
+| `frontend/src/types/calls.ts` | Added `notes: string | null` to `Call` interface |
+| `frontend/src/services/api.ts` | Added `callsApi.updateNotes()` |
+| `frontend/src/modules/calls/CallDetailDrawer.tsx` | Added inline editable notes section with mutation and immediate local state update |
+
+### Task 2 — Advanced Filtering & Search
+| File | Change |
+|------|--------|
+| `backend/app/modules/calls/repository.py` | Extended `list_calls()` with `caller_name`, `phone_number`, `label`, `min_duration`, `max_duration`, `sort_by`, `sort_order` params |
+| `backend/app/modules/calls/service.py` | Passed new filter params through from service to repository |
+| `backend/app/modules/calls/router.py` | Added 6 new `Query` params to `GET /api/calls` |
+| `frontend/src/types/calls.ts` | Added filter fields to `CallsQueryParams` |
+| `frontend/src/modules/calls/CallsPage.tsx` | Added filter panel, active filter chips, sort controls |
+
+### Task 3 — Stale Call Auto-Expiry
+| File | Change |
+|------|--------|
+| `backend/app/modules/calls/repository.py` | Added `expire_stale_calls()` batch update method |
+| `backend/app/modules/calls/tasks.py` | Implemented `expire_stale_calls()` and `run_stale_call_expiry_loop()` |
+| `backend/app/main.py` | Added `@app.on_event("startup")` to launch background loop |
+| `backend/app/core/config.py` | Added `stale_call_check_interval_minutes` and `stale_call_threshold_minutes` settings |
+| `backend/.env.example` | Added both new env vars with defaults |
+
+### Task 4 — Webhook AI Integration
+| File | Change |
+|------|--------|
+| `backend/app/modules/calls/service.py` | Implemented `process_webhook()` and `_enrich_with_ai()` |
+| `backend/app/modules/calls/router.py` | Filled in `webhook_call()` endpoint body |
