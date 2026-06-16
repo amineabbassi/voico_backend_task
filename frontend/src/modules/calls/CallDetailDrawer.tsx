@@ -41,26 +41,21 @@ function formatDuration(seconds: number | null): string {
 export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesInput, setNotesInput] = useState("");
-  // Track the displayed notes locally so the drawer updates immediately after save
-  // without waiting for the parent to re-render with fresh data from the query cache.
   const [displayedNotes, setDisplayedNotes] = useState<string | null | undefined>(undefined);
   const queryClient = useQueryClient();
 
-  if (!call) return null;
-
-  // Use local displayedNotes if set (after a save), otherwise fall back to call.notes from props
-  const currentNotes = displayedNotes !== undefined ? displayedNotes : call.notes;
-
   const notesMutation = useMutation({
-    mutationFn: (notes: string | null) => callsApi.updateNotes(call.id, notes),
+    mutationFn: (notes: string | null) => callsApi.updateNotes(call!.id, notes),
     onSuccess: (updatedCall) => {
-      // Update local display immediately so user sees the change right away
       setDisplayedNotes(updatedCall.notes);
       setIsEditingNotes(false);
-      // Also invalidate the list so the table stays in sync
       queryClient.invalidateQueries({ queryKey: ["calls"] });
     },
   });
+
+  if (!call) return null;
+
+  const currentNotes = displayedNotes !== undefined ? displayedNotes : call.notes;
 
   function handleEditNotes() {
     setNotesInput(currentNotes ?? "");
@@ -85,7 +80,6 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
       />
 
       <aside className="fixed right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl z-50 flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
             <h2 className="text-base font-semibold text-foreground">Call Details</h2>
@@ -99,7 +93,6 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
           </button>
         </div>
 
-        {/* Status banner */}
         <div className="px-6 py-3 bg-muted/50 border-b border-border flex items-center justify-between">
           <StatusBadge status={call.status} />
           {call.label && (
@@ -109,7 +102,6 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
           )}
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto px-6 py-4">
           <DetailRow
             icon={<Phone className="h-4 w-4" />}
@@ -203,7 +195,6 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
           </div>
         </div>
 
-        {/* AI Summary */}
         {call.summary && (
           <div className="px-6 py-4 border-t border-border">
             <div className="flex items-center gap-2 mb-2">
@@ -214,7 +205,6 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
           </div>
         )}
 
-        {/* Transcript */}
         {call.raw_transcript && (
           <div className="px-6 py-4 border-t border-border">
             <div className="flex items-center gap-2 mb-2">
@@ -229,7 +219,6 @@ export function CallDetailDrawer({ call, onClose }: CallDetailDrawerProps) {
           </div>
         )}
 
-        {/* Footer */}
         <div className="px-6 py-3 border-t border-border bg-muted/30">
           <p className="text-xs text-muted-foreground">
             Created {format(new Date(call.created_at), "PPpp")}
