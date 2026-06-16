@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, Phone } from "lucide-react";
+import { RefreshCw, Phone, X, ChevronUp, ChevronDown } from "lucide-react";
 import { callsApi } from "@/services/api";
 import type { Call, CallStatus } from "@/types/calls";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,20 +19,71 @@ const TABS: { label: string; value: TabValue }[] = [
 
 const PAGE_SIZE = 20;
 
+interface ActiveFilter {
+  key: string;
+  label: string;
+  value: string;
+}
+
 export function CallsPage() {
   const [activeTab, setActiveTab] = useState<TabValue>("all");
   const [page, setPage] = useState(1);
   const [selectedCall, setSelectedCall] = useState<Call | null>(null);
 
+  // Task 2: filter state
+  const [callerName, setCallerName] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [label, setLabel] = useState("");
+  const [minDuration, setMinDuration] = useState("");
+  const [maxDuration, setMaxDuration] = useState("");
+  const [sortBy, setSortBy] = useState<string | undefined>(undefined);
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+
   const statusFilter = activeTab === "all" ? undefined : activeTab;
 
+  const activeFilters: ActiveFilter[] = [
+    ...(callerName ? [{ key: "callerName", label: "Caller", value: callerName }] : []),
+    ...(phoneNumber ? [{ key: "phoneNumber", label: "Phone", value: phoneNumber }] : []),
+    ...(label ? [{ key: "label", label: "Label", value: label }] : []),
+    ...(minDuration ? [{ key: "minDuration", label: "Min duration", value: `${minDuration}s` }] : []),
+    ...(maxDuration ? [{ key: "maxDuration", label: "Max duration", value: `${maxDuration}s` }] : []),
+    ...(sortBy ? [{ key: "sort", label: "Sort", value: `${sortBy} ${sortOrder}` }] : []),
+  ];
+
+  function removeFilter(key: string) {
+    if (key === "callerName") setCallerName("");
+    if (key === "phoneNumber") setPhoneNumber("");
+    if (key === "label") setLabel("");
+    if (key === "minDuration") setMinDuration("");
+    if (key === "maxDuration") setMaxDuration("");
+    if (key === "sort") { setSortBy(undefined); setSortOrder("desc"); }
+    setPage(1);
+  }
+
+  function handleSort(column: string) {
+    if (sortBy === column) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(column);
+      setSortOrder("desc");
+    }
+    setPage(1);
+  }
+
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ["calls", statusFilter, page, PAGE_SIZE],
+    queryKey: ["calls", statusFilter, page, PAGE_SIZE, callerName, phoneNumber, label, minDuration, maxDuration, sortBy, sortOrder],
     queryFn: () =>
       callsApi.list({
         status: statusFilter,
         page,
         page_size: PAGE_SIZE,
+        caller_name: callerName || undefined,
+        phone_number: phoneNumber || undefined,
+        label: label || undefined,
+        min_duration: minDuration ? Number(minDuration) : undefined,
+        max_duration: maxDuration ? Number(maxDuration) : undefined,
+        sort_by: sortBy,
+        sort_order: sortOrder,
       }),
     refetchInterval: 5000,
   });
@@ -40,6 +91,12 @@ export function CallsPage() {
   function handleTabChange(tab: TabValue) {
     setActiveTab(tab);
     setPage(1);
+  }
+
+  function handleApplyFilters(e: React.FormEvent) {
+    e.preventDefault();
+    setPage(1);
+    refetch();
   }
 
   return (
@@ -60,7 +117,6 @@ export function CallsPage() {
                 Calls Dashboard
               </span>
             </div>
-
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 text-xs text-gray-500">
                 <span
@@ -83,7 +139,7 @@ export function CallsPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Stats row */}
+        {/* Stats */}
         {data && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
             {[
@@ -100,6 +156,95 @@ export function CallsPage() {
           </div>
         )}
 
+        {/* Task 2: Filter panel */}
+        <Card className="bg-white mb-4">
+          <form onSubmit={handleApplyFilters} className="px-6 py-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Filters</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              <input
+                type="text"
+                placeholder="Caller name"
+                value={callerName}
+                onChange={(e) => setCallerName(e.target.value)}
+                className="text-sm border border-border rounded-md px-3 py-1.5 focus:outline-none focus:ring-1"
+                style={{ "--tw-ring-color": "#FDDF5C" } as React.CSSProperties}
+              />
+              <input
+                type="text"
+                placeholder="Phone number"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                className="text-sm border border-border rounded-md px-3 py-1.5 focus:outline-none focus:ring-1"
+              />
+              <select
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                className="text-sm border border-border rounded-md px-3 py-1.5 focus:outline-none focus:ring-1 text-muted-foreground"
+              >
+                <option value="">All labels</option>
+                {["Sales inquiry", "Support", "Complaint", "Appointment", "Follow-up", "Other"].map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                placeholder="Min duration (s)"
+                value={minDuration}
+                onChange={(e) => setMinDuration(e.target.value)}
+                className="text-sm border border-border rounded-md px-3 py-1.5 focus:outline-none focus:ring-1"
+              />
+              <input
+                type="number"
+                placeholder="Max duration (s)"
+                value={maxDuration}
+                onChange={(e) => setMaxDuration(e.target.value)}
+                className="text-sm border border-border rounded-md px-3 py-1.5 focus:outline-none focus:ring-1"
+              />
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <Button type="submit" size="sm" style={{ backgroundColor: "#FDDF5C", color: "#4a3800" }}>
+                Apply Filters
+              </Button>
+              {activeFilters.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setCallerName(""); setPhoneNumber(""); setLabel("");
+                    setMinDuration(""); setMaxDuration("");
+                    setSortBy(undefined); setSortOrder("desc");
+                    setPage(1);
+                  }}
+                >
+                  Clear all
+                </Button>
+              )}
+            </div>
+
+            {/* Active filter chips */}
+            {activeFilters.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {activeFilters.map((f) => (
+                  <span
+                    key={f.key}
+                    className="inline-flex items-center gap-1 text-xs rounded-full px-2.5 py-1 font-medium border border-border bg-muted"
+                  >
+                    <span className="text-muted-foreground">{f.label}:</span> {f.value}
+                    <button
+                      type="button"
+                      onClick={() => removeFilter(f.key)}
+                      className="text-muted-foreground hover:text-foreground ml-0.5"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </form>
+        </Card>
+
         <Card className="bg-white">
           <div className="flex items-center px-6 pt-5 pb-4 border-b border-border">
             <div className="flex gap-1 bg-muted rounded-lg p-1 w-fit">
@@ -115,6 +260,23 @@ export function CallsPage() {
                   }
                 >
                   {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Sort controls */}
+            <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Sort by:</span>
+              {["started_at", "duration_seconds", "caller_name"].map((col) => (
+                <button
+                  key={col}
+                  onClick={() => handleSort(col)}
+                  className={`flex items-center gap-0.5 px-2 py-1 rounded hover:bg-muted transition-colors ${sortBy === col ? "font-semibold text-foreground" : ""}`}
+                >
+                  {col.replace("_", " ")}
+                  {sortBy === col ? (
+                    sortOrder === "asc" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -139,18 +301,12 @@ export function CallsPage() {
                 <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
             ) : (
-              <CallsTable
-                calls={data?.data ?? []}
-                onRowClick={setSelectedCall}
-              />
+              <CallsTable calls={data?.data ?? []} onRowClick={setSelectedCall} />
             )}
           </CardContent>
 
-          {/* Pagination */}
           {data && data.total_pages > 1 && (
-            <div
-              className="flex items-center justify-between px-6 py-4 border-t border-border"
-            >
+            <div className="flex items-center justify-between px-6 py-4 border-t border-border">
               <p className="text-sm text-muted-foreground">
                 Page {data.page} of {data.total_pages}{" "}
                 <span className="opacity-60">({data.total} total)</span>

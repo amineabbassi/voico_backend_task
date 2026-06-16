@@ -35,6 +35,7 @@ class Call(SQLModel, table=True):
     status: CallStatus = Field(default=CallStatus.in_progress, index=True)
     summary: Optional[str] = Field(default=None)
     label: Optional[CallLabel] = Field(default=None)
+    notes: Optional[str] = Field(default=None)  # Task 1
     started_at: datetime = Field(
         default_factory=datetime.utcnow,
         sa_column=Column(DateTime, nullable=False),
@@ -56,13 +57,16 @@ class Call(SQLModel, table=True):
 
 # --- Request / Response schemas ---
 
-
 class WebhookCallPayload(SQLModel):
     call_id: uuid.UUID
     status: CallStatus
     duration_seconds: Optional[int] = None
     raw_transcript: Optional[str] = None
     ended_at: Optional[datetime] = None
+
+
+class UpdateNotesPayload(SQLModel):
+    notes: Optional[str] = None
 
 
 class CallResponse(SQLModel):
@@ -73,6 +77,7 @@ class CallResponse(SQLModel):
     status: CallStatus
     summary: Optional[str]
     label: Optional[CallLabel]
+    notes: Optional[str]
     started_at: datetime
     ended_at: Optional[datetime]
     created_at: datetime

@@ -8,6 +8,7 @@ export interface Call {
   status: CallStatus;
   summary: string | null;
   label: string | null;
+  notes: string | null;
   started_at: string;
   ended_at: string | null;
   created_at: string;
@@ -34,4 +35,12 @@ export interface CallsQueryParams {
   status?: CallStatus;
   page?: number;
   page_size?: number;
+  // Task 2: advanced filters
+  caller_name?: string;
+  phone_number?: string;
+  label?: string;
+  min_duration?: number;
+  max_duration?: number;
+  sort_by?: string;
+  sort_order?: "asc" | "desc";
 }

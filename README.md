@@ -52,10 +52,10 @@ Interactive docs: `http://localhost:8000/docs`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/calls` | List calls (filterable by status, paginated) |
+| `GET` | `/api/calls` | List calls (filterable by status, caller name, phone, label, duration; sortable; paginated) |
 | `GET` | `/api/calls/{id}` | Get single call |
-| `PATCH` | `/api/calls/{id}/notes` | Update notes on a call — to be implemented in Task 1 |
-| `POST` | `/api/webhook/call` | Update an existing call (status, duration, transcript, end time) — to be implemented in Task 4 |
+| `PATCH` | `/api/calls/{id}/notes` | Update notes on a call |
+| `POST` | `/api/webhook/call` | Update an existing call with AI enrichment |
 | `GET` | `/health` | Health check |
 
 ### Environment Variables
@@ -63,7 +63,9 @@ Interactive docs: `http://localhost:8000/docs`
 | Variable | Description |
 |----------|-------------|
 | `DATABASE_URL` | SQLite database path (default: `sqlite+aiosqlite:///./db.sqlite3`) |
-| `OPENAI_API_KEY` | OpenAI API key — needed for Task 4 |
+| `OPENAI_API_KEY` | OpenAI API key — needed for Task 4 AI enrichment |
+| `STALE_CALL_CHECK_INTERVAL_MINUTES` | How often the stale-call expiry job runs (default: `10`) |
+| `STALE_CALL_THRESHOLD_MINUTES` | How long a call must be in_progress before it's expired (default: `30`) |
 
 ---
 
@@ -99,61 +101,74 @@ The UI will be available at `http://localhost:5173`.
 
 ---
 
-## Interview Tasks
-
-There are four features to implement. Some tasks require adding new endpoints and fields from scratch; others have the structure already in place and just need the logic filled in.
+## Interview Tasks — Solutions
 
 ---
 
-### Task 1 — Call Notes
+### Task 1 — Call Notes ✅
 
-**What exists:** The `Call` model has no notes field. There is no way for a user to annotate a call.
+**What I built:**
 
-**What to build:** Add a `notes` field to the `Call` model — a nullable free-text field. Create an Alembic migration for it. Add a `PATCH /api/calls/{id}/notes` endpoint that accepts a JSON body `{"notes": "..."}` and persists it. On the frontend, make the notes field editable inline inside the call detail drawer: clicking on it should turn it into a textarea, and saving should call the new endpoint and update the UI immediately.
+- Added a `notes: Optional[str]` field to the `Call` SQLModel model.
+- Created Alembic migration `0002_add_notes_to_calls.py` which adds the nullable `notes` column to the `calls` table.
+- Added `UpdateNotesPayload` schema (accepts `{"notes": "..."}`) and `PATCH /api/calls/{id}/notes` endpoint in the router.
+- Added `update_notes()` method in `CallService` — finds the call by ID, updates the `notes` field and `updated_at`, persists via the repository.
+- Added `notes` to `CallResponse` so it's returned in all call-related responses.
 
----
+**Frontend:** The call detail drawer now has an inline editable notes section. Clicking the notes area or the pencil icon switches it to a `<textarea>`. Saving calls `PATCH /api/calls/{id}/notes` via TanStack Query mutation, then invalidates the calls query to refresh the table. Cancel restores the original value without an API call.
 
-### Task 2 — Advanced Filtering & Search
-
-**What exists:** The table has tabs to filter by status. That's it.
-
-**What to build:** A proper multi-filter system so users can narrow down calls using several conditions simultaneously.
-
-On the **backend**, extend `GET /api/calls` to accept additional query parameters: partial match on caller name and phone number, exact match on label, min/max duration in seconds, and column sorting. All filters should be optional and combinable — multiple active filters are ANDed together.
-
-On the **frontend**, add a filter UI that lets users add and remove filters. Each active filter should be visible as a removable chip or tag. Column headers should be clickable to sort ascending/descending (one active sort at a time). All active filters and sort state should be reflected in the API request in real time.
+**Key decision:** I store `null` when notes are cleared (empty string maps to `null`) rather than an empty string, to keep the data consistent with other optional nullable fields on the model.
 
 ---
 
-### Task 3 — Stale Call Auto-Expiry
+### Task 2 — Advanced Filtering & Search ✅
 
-**What exists:** The database contains calls with status `in_progress`. They are meant to get updated to `success` or `failed` via the webhook. There is no mechanism to handle calls that never receive a closing webhook.
+**What I built:**
 
-**What to build:** A background job that runs automatically while the server is up. Every 10 minutes it checks for calls that have been `in_progress` for more than 30 minutes and marks them as `failed` in a single batch update. It should log how many calls were expired each run.
+**Backend:** Extended `GET /api/calls` with optional query parameters:
+- `caller_name` — partial match using `ILIKE %value%`
+- `phone_number` — partial match using `ILIKE %value%`
+- `label` — exact match
+- `min_duration` / `max_duration` — range filter on `duration_seconds`
+- `sort_by` — one of `started_at`, `ended_at`, `duration_seconds`, `caller_name`, `phone_number`, `status`, `created_at`
+- `sort_order` — `asc` or `desc` (validated via regex pattern in Query)
 
-The interval (10 min) and the stale threshold (30 min) must be configurable via environment variables — add them to `.env` and `app/core/config.py` so they are easy to adjust for testing without touching the code.
+All filters are optional and combined with `AND`. The `sort_by` parameter is validated against a whitelist dictionary to prevent SQL injection — unknown column names fall back to `created_at`.
+
+**Frontend:** Added a filter panel above the table with inputs for all filter types. Active filters appear as removable chips. Sort controls sit in the tab bar — clicking a column name toggles asc/desc and shows a chevron indicator. All filter and sort state is reflected in the `useQuery` key so any change triggers a fresh API call.
+
+**Key decision:** Status counts in the response always reflect the full dataset (unfiltered by status), so the tab badges remain accurate even when other filters are active.
 
 ---
 
-### Task 4 — Webhook AI Integration
+### Task 3 — Stale Call Auto-Expiry ✅
 
-**What exists:** The `POST /api/webhook/call` endpoint exists with a `pass` body. The `CallLabel` enum is defined in `schema.py`. The webhook payload accepts `call_id`, `status`, `duration_seconds`, `raw_transcript`, and `ended_at`.
+**What I built:**
 
-**What to build:** Implement the `POST /api/webhook/call` endpoint. It has two responsibilities:
+- `expire_stale_calls(stale_before: datetime)` method on `CallRepository` — selects all `in_progress` calls where `started_at < stale_before`, sets their `status` to `failed`, updates `updated_at`, and flushes in a single session. Returns the count of expired calls.
+- `run_stale_call_expiry_loop()` async function in `tasks.py` — runs in an infinite loop, sleeping `STALE_CALL_CHECK_INTERVAL_MINUTES * 60` seconds between runs. Each iteration calls `expire_stale_calls` inside its own async session with an explicit transaction.
+- The loop is launched with `asyncio.create_task()` inside the FastAPI `@app.on_event("startup")` handler in `main.py`, so it starts automatically with the server.
+- Added `stale_call_check_interval_minutes` and `stale_call_threshold_minutes` to `Settings` in `config.py` with defaults of 10 and 30.
+- Added both variables to `.env` and `.env.example` for easy configuration without touching code.
 
-1. **Update the call** — find the call by `call_id`, update its `status`, `duration_seconds`, `raw_transcript`, and `ended_at`, then persist the changes.
-2. **AI enrichment** — if the new status is `success` or `failed` and a `raw_transcript` is provided, call the OpenAI API (`gpt-4o-mini`) to generate a short summary (2–3 sentences) and classify the call into one of the `CallLabel` values. Store both on the call record. If the OpenAI call fails, log the error and continue — `summary` and `label` should remain `null`.
+Errors inside the loop are caught and logged — the loop does not crash the server.
 
-**How to test:** Once implemented, use the interactive API docs at `http://localhost:8000/docs` (powered by Swagger UI). Steps:
-1. Call `GET /api/calls?status=in_progress` and copy an `id` from the response.
-2. Open `POST /api/webhook/call`, click **Try it out**, and paste a payload like:
-   ```json
-   {
-     "call_id": "<paste id here>",
-     "status": "success",
-     "duration_seconds": 120,
-     "ended_at": "2024-01-01T12:00:00",
-     "raw_transcript": "Agent: How can I help?\nCaller: I need to upgrade my plan."
-   }
-   ```
-3. Hit **Execute** — the response will show the updated call with the generated summary and label.
+---
+
+### Task 4 — Webhook AI Integration ✅
+
+**What I built:**
+
+**Endpoint:** `POST /api/webhook/call` — implemented `process_webhook()` in `CallService`.
+
+**Call update:** Finds the call by `call_id` (404 if not found). Updates `status`, `duration_seconds`, `raw_transcript`, and `ended_at` from the payload (all fields except `call_id` and `status` are only applied if provided in the payload).
+
+**AI enrichment:** If the new status is `success` or `failed` and a `raw_transcript` is present, calls `gpt-4o-mini` with a structured prompt asking for:
+- `summary` — a 2-3 sentence summary
+- `label` — one of the `CallLabel` enum values
+
+I use `response_format={"type": "json_object"}` to guarantee valid JSON back from the model, then parse and validate the label against the `CallLabel` enum. If the label value is unrecognized, it logs a warning and sets `label` to `None`.
+
+**Error handling:** The entire OpenAI call is wrapped in a try/except. If it fails for any reason (network error, invalid key, rate limit), the error is logged and the function continues — the call is still updated, just without `summary` and `label`.
+
+**Key decision:** I used `response_format={"type": "json_object"}` rather than asking the model to return JSON in plain text and hoping for the best. This eliminates the need to strip markdown code fences and makes parsing reliable.

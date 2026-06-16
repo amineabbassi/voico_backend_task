@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import FastAPI
@@ -5,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.modules.calls.router import router as calls_router
+from app.modules.calls.tasks import run_stale_call_expiry_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -26,6 +28,12 @@ app.add_middleware(
 )
 
 app.include_router(calls_router, prefix="/api")
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    """Task 3: Start the stale call expiry background loop on server startup."""
+    asyncio.create_task(run_stale_call_expiry_loop())
 
 
 @app.get("/health")
